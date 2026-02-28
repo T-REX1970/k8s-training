@@ -1,0 +1,21 @@
+# Prometheusのデータ永続化用PersistentVolumeClaim
+# minikubeはデフォルトでstandard StorageClassが利用可能
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassNameを指定しない場合、デフォルトのStorageClassが使われる
+  # minikubeでは "standard" が自動適用される

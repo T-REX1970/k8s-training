@@ -1,0 +1,215 @@
+# kube-prometheus-stack カスタム値
+# リリース名: monitoring
+# 含まれるコンポーネント:
+#   - Prometheus Operator (ServiceMonitor/PodMonitor CRDを提供)
+#   - Prometheus
+#   - Grafana (VictoriaMetrics・Loki・Jaegerのデータソース設定済み)
+#   - AlertManager
+#   - node-exporter (ノードレベルのCPU/メモリ/ディスク)
+#   - kube-state-metrics (DeploymentやPodの状態メトリクス)
+#
+# インストール後のサービス名:
+#   Grafana    : monitoring-grafana             (NodePort 30300)
+#   Prometheus : monitoring-kube-prometheus-prometheus (NodePort 30090)
+#   AlertManager: monitoring-kube-prometheus-alertmanager (NodePort 30903)
+
+# ============================================================
+# Grafana 設定
+# ============================================================
+grafana:
+  enabled: true
+
+  # 初期管理者パスワード
+  adminPassword: "admin"
+
+  service:
+    type: NodePort
+    nodePort: 30300
+
+  # minikube向けリソース設定
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  # データソース設定
+  # Prometheus (デフォルト) + VictoriaMetrics + Loki + Jaeger
+  additionalDataSources:
+    # VictoriaMetrics
+    # PromQL互換 / MetricsQL拡張 / Prometheusより低メモリ
+    - name: VictoriaMetrics
+      type: prometheus
+      access: proxy
+      url: http://vm-victoria-metrics-single-server.monitoring:8428
+      isDefault: false
+      editable: true
+      jsonData:
+        timeInterval: "15s"
+
+    # Loki (ログ集約)
+    # LogQLでログ検索・PromQLライクな集計が可能
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring:3100
+      isDefault: false
+      editable: true
+
+    # Jaeger (分散トレーシング)
+    - name: Jaeger
+      type: jaeger
+      access: proxy
+      url: http://jaeger-query.monitoring:16686
+      isDefault: false
+      editable: true
+
+  # デフォルトで用意されているダッシュボードを有効化
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: "Asia/Tokyo"
+
+  # Grafanaの永続化
+  persistence:
+    enabled: true
+    storageClassName: "standard"
+    size: 2Gi
+
+# ============================================================
+# Prometheus 設定
+# ============================================================
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30090
+
+  prometheusSpec:
+    # データ保持期間
+    retention: 15d
+
+    # VictoriaMetricsへのリモート書き込み
+    # Prometheusが収集したメトリクスをVMにも転送して比較学習
+    remoteWrite:
+      - url: http://vm-victoria-metrics-single-server.monitoring:8428/api/v1/write
+        queueConfig:
+          maxSamplesPerSend: 10000
+
+    # データ永続化
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "standard"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+    # minikube向けリソース設定
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+    # ServiceMonitorのスコープ (全Namespaceを対象)
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+# ============================================================
+# AlertManager 設定
+# ============================================================
+alertmanager:
+  enabled: true
+
+  service:
+    type: NodePort
+    nodePort: 30903
+
+  alertmanagerSpec:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "standard"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
+
+# ============================================================
+# Prometheus Operator 設定
+# ============================================================
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Admission Webhooksの証明書自動生成を有効化
+  admissionWebhooks:
+    enabled: true
+    patch:
+      enabled: true
+
+# ============================================================
+# node-exporter (ノードのCPU/メモリ/ディスク/ネットワーク)
+# ============================================================
+nodeExporter:
+  enabled: true
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# ============================================================
+# kube-state-metrics (Kubernetes リソースの状態メトリクス)
+# Deployment・Pod・ReplicaSet などの状態をメトリクス化
+# ============================================================
+kubeStateMetrics:
+  enabled: true
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================
+# minikubeでは内部コンポーネントのエンドポイントが
+# 露出していないためスクレイプを無効化
+# (有効にするとTargetsがDownと表示されて見づらい)
+# ============================================================
+kubeScheduler:
+  enabled: false
+
+kubeControllerManager:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+kubeProxy:
+  enabled: false

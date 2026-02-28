@@ -1,0 +1,86 @@
+# Promtail設定ファイル
+# 役割: 各ノードの /var/log/pods から全コンテナのログを収集し
+#       Kubernetesメタデータをラベルとして付与してLokiへ送信する
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: promtail
+    app.kubernetes.io/component: log-collector
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    # スクレイプ済みの位置情報を保存 (再起動後に重複収集を防ぐ)
+    positions:
+      filename: /run/promtail/positions.yaml
+
+    # Lokiへの送信先
+    clients:
+      - url: http://loki:3100/loki/api/v1/push
+
+    scrape_configs:
+      # Kubernetesの全Podログを収集
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+
+        pipeline_stages:
+          # CRI (containerd/Docker) 形式のログをパース
+          - cri: {}
+
+        relabel_configs:
+          # アノテーション promtail.io/scrape: "false" のPodを除外
+          - source_labels: [__meta_kubernetes_pod_annotation_promtail_io_scrape]
+            action: drop
+            regex: "false"
+
+          # Pod名をラベルに付与
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+
+          # コンテナ名をラベルに付与
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            action: replace
+            target_label: container
+
+          # Namespace をラベルに付与
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+
+          # app.kubernetes.io/name ラベルをapp ラベルとして付与
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: replace
+            target_label: app
+
+          # ノード名をラベルに付与 (ネットワーク調査に便利)
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node_name
+
+          # ログファイルのパス設定
+          - source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            action: replace
+            target_label: __path__
+            separator: /
+            replacement: /var/log/pods/*$1/*.log
+
+          # Pod UIDを使って正確なパスを設定
+          - source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            action: replace
+            regex: (.+)/(.+)
+            replacement: /var/log/pods/*$1/$2/*.log
+            target_label: __path__

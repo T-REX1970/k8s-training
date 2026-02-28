@@ -1,0 +1,102 @@
+# ArgoCD Application リソース (GitOpsの核心)
+# 役割: GitリポジトリのYAMLとクラスタの状態を常に同期させる
+#
+# データフロー:
+#   GitHub (manifests/) → ArgoCD が差分検知 → kubectl apply を自動実行
+#
+# 同期ポリシー:
+#   automated.prune: true   → Git から削除されたリソースはクラスタからも削除
+#   automated.selfHeal: true → 手動変更があっても Git の状態に自動で戻す
+#
+# 適用タイミング: ArgoCD インストール完了後
+#   kubectl apply -f manifests/argocd/argocd-application-monitoring.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-stack
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: monitoring-stack
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: argocd
+  # Applicationを削除するときに配下のリソースも削除する
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # デフォルトプロジェクト (全Namespaceへのデプロイを許可)
+  project: default
+
+  # 同期元: GitリポジトリのURL + ブランチ + パス
+  source:
+    repoURL: https://github.com/Oasis1994LiveForever/k8s-training.git
+    targetRevision: main
+    # kustomization.yaml があるディレクトリを指定
+    path: manifests
+
+  # デプロイ先クラスタとNamespace
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  # 同期ポリシー
+  syncPolicy:
+    # 自動同期: Git pushされたら自動でクラスタに反映
+    automated:
+      # Gitから消えたリソースをクラスタからも削除
+      prune: true
+      # 手動でkubectl editされても Gitの状態に戻す
+      selfHeal: true
+
+    syncOptions:
+      # Namespace が無ければ自動作成
+      - CreateNamespace=true
+      # PVC等のリソースを安全に適用
+      - RespectIgnoreDifferences=true
+
+    # 同期失敗時の再試行設定
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# ArgoCD AppProject (プロジェクト単位のアクセス制御)
+# デフォルトプロジェクトより細かくアクセス制限をかける場合に使用
+# 学習段階では参考として見ておく
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: argocd
+spec:
+  description: "Observabilityスタック管理プロジェクト"
+
+  # このプロジェクトが同期できるリポジトリ
+  sourceRepos:
+    - https://github.com/Oasis1994LiveForever/k8s-training.git
+
+  # このプロジェクトがデプロイできるクラスタとNamespace
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+
+  # 使用可能なClusterリソースの種別
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+
+  # 使用可能なNamespaceリソース (全許可)
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

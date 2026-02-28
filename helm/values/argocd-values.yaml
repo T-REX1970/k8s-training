@@ -1,0 +1,154 @@
+# ArgoCD カスタム値
+# チャート: argo/argo-cd
+# リリース名: argocd
+# Namespace: argocd
+#
+# インストール後のサービス名:
+#   argocd-server (NodePort 30808) ← ArgoCD UI / API
+#
+# 初期パスワード取得コマンド:
+#   kubectl get secret argocd-initial-admin-secret \
+#     -n argocd -o jsonpath="{.data.password}" | base64 -d
+#
+# ログイン:
+#   argocd login $(minikube ip):30808 --insecure --username admin
+
+# ============================================================
+# ArgoCD Server (UI + API)
+# ============================================================
+server:
+  # 学習環境向け: TLSを無効化してHTTPで動作させる
+  # 本番では必ずTLSを有効化すること
+  extraArgs:
+    - --insecure
+
+  service:
+    type: NodePort
+    nodePortHttp: 30808
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  # Prometheus でメトリクスを収集
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+
+# ============================================================
+# ApplicationSet Controller
+# ApplicationSetを使って複数Applicationを一括管理
+# ============================================================
+applicationSet:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+
+# ============================================================
+# Repo Server (Gitリポジトリの取得・マニフェスト生成)
+# ============================================================
+repoServer:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+
+# ============================================================
+# Application Controller (クラスタとGitの差分検知・同期)
+# ============================================================
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      namespace: monitoring
+
+# ============================================================
+# Notifications Controller (Slack等への通知)
+# ============================================================
+notifications:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================
+# Dex (OIDC認証 / SSOプロバイダー)
+# 学習環境ではSSOは不要なため軽量設定
+# ============================================================
+dex:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================
+# Redis (ArgoCDのキャッシュ・セッション管理)
+# ============================================================
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================
+# Configs (グローバル設定)
+# ============================================================
+configs:
+  # アプリケーションの健全性チェック設定
+  params:
+    # Helmチャートのパラメータ変更を検知する
+    controller.diff.server.side: true
+
+  # Gitリポジトリのポーリング間隔 (秒)
+  # デフォルト180秒 → 学習用に短縮
+  cm:
+    timeout.reconciliation: 60s
+
+  # RepositoryのTLS検証設定
+  # privateリポジトリはここにSSHキーや認証情報を追加
+  repositories: {}

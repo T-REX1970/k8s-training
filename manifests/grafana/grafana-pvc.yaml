@@ -1,0 +1,19 @@
+# Grafanaのデータ永続化用PVC
+# ダッシュボード・プラグイン・設定を保持する
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/component: visualization
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi

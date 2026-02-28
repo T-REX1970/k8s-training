@@ -1,0 +1,94 @@
+# VictoriaMetrics Single ノードデプロイメント
+# 学習フェーズ2.5: Prometheusの代替として導入し性能比較を行う
+# ポート8428: HTTP API (PromQL互換 + MetricsQL拡張)
+# エンドポイント:
+#   - /api/v1/write   : Prometheusのremote_writeで書き込み
+#   - /api/v1/query   : クエリ (PromQL/MetricsQL)
+#   - /metrics        : VM自身のメトリクス
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoria-metrics
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: victoria-metrics
+    app.kubernetes.io/instance: victoria-metrics
+    app.kubernetes.io/version: "v1.97.1"
+    app.kubernetes.io/component: metrics-storage
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoria-metrics
+      app.kubernetes.io/instance: victoria-metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victoria-metrics
+        app.kubernetes.io/instance: victoria-metrics
+        app.kubernetes.io/version: "v1.97.1"
+        app.kubernetes.io/component: metrics-storage
+        app.kubernetes.io/part-of: k8s-observability
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8428"
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        runAsNonRoot: true
+      containers:
+        - name: victoria-metrics
+          image: victoriametrics/victoria-metrics:v1.97.1
+          args:
+            - "--storageDataPath=/victoria-metrics-data"
+            # データ保持期間: 30日 (Prometheusの2倍に設定して比較)
+            - "--retentionPeriod=30d"
+            # Prometheusのremote_writeを受け付けるエンドポイント有効化
+            - "--httpListenAddr=:8428"
+          ports:
+            - name: http
+              containerPort: 8428
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-metrics-data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victoria-metrics-data
+        - name: tmp
+          emptyDir: {}

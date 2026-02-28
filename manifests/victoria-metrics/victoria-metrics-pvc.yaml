@@ -1,0 +1,19 @@
+# VictoriaMetricsのデータ永続化用PVC
+# Prometheusより圧縮率が高いため同容量でも多くのデータを保存可能
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victoria-metrics-data
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: victoria-metrics
+    app.kubernetes.io/instance: victoria-metrics
+    app.kubernetes.io/component: metrics-storage
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

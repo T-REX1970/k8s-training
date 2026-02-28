@@ -1,0 +1,21 @@
+# PromtailがPod情報を取得してログにラベルを付与するための権限
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: promtail
+  labels:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: promtail
+    app.kubernetes.io/component: log-collector
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+rules:
+  # Podのメタ情報 (namespace, pod名, コンテナ名) をログラベルに付与
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "watch", "list"]

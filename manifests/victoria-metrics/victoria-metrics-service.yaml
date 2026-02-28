@@ -1,0 +1,27 @@
+# VictoriaMetricsのService
+# NodePort 30428でminikubeから直接アクセス可能
+# GrafanaのデータソースURL: http://victoria-metrics:8428
+# Prometheusのremote_write URL: http://victoria-metrics:8428/api/v1/write
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoria-metrics
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: victoria-metrics
+    app.kubernetes.io/instance: victoria-metrics
+    app.kubernetes.io/version: "v1.97.1"
+    app.kubernetes.io/component: metrics-storage
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: victoria-metrics
+    app.kubernetes.io/instance: victoria-metrics
+  ports:
+    - name: http
+      port: 8428
+      targetPort: http
+      protocol: TCP
+      nodePort: 30428

@@ -1,0 +1,50 @@
+# VictoriaMetrics Single カスタム値
+# チャート: vm/victoria-metrics-single
+# リリース名: vm
+#
+# インストール後のサービス名:
+#   vm-victoria-metrics-single-server (NodePort 30428)
+#
+# 主要エンドポイント:
+#   /api/v1/write  : Prometheusのremote_write受け口
+#   /api/v1/query  : PromQL / MetricsQL クエリ
+#   /vmui          : ビルトインUI (Grafana不要でクエリ確認可能)
+#   /metrics       : VM自身のメトリクス
+#   /health        : ヘルスチェック
+
+server:
+  # データ保持期間: Prometheusより長く設定してストレージ効率の違いを体感
+  retentionPeriod: "30d"
+
+  service:
+    type: NodePort
+    servicePort: 8428
+    nodePort: 30428
+
+  # データ永続化
+  persistentVolume:
+    enabled: true
+    storageClass: "standard"
+    size: 5Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # minikube向けリソース (Prometheusより低メモリで同等性能を確認する)
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # セキュリティコンテキスト
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8428"

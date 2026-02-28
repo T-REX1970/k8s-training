@@ -1,0 +1,27 @@
+# Istio PeerAuthentication
+# 役割: Namespace内の全サービス間通信にmTLSを強制する
+#
+# モードの違い:
+#   STRICT  : mTLS必須 (非TLS通信を拒否) - 本番推奨
+#   PERMISSIVE: mTLS・平文の両方を許可 (移行期や学習向け)
+#
+# 学習順序:
+#   1. PERMISSIVE で動作確認
+#   2. Kialiでトラフィックフローを確認
+#   3. STRICT に切り替えてmTLS通信を確認
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: monitoring-mtls
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: monitoring-mtls
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # namespace全体に適用 (selectorを省略するとnamespace全体が対象)
+  mtls:
+    # まずPERMISSIVEで学習し、慣れたらSTRICTに変更する
+    mode: PERMISSIVE
+    # mode: STRICT  ← mTLSを強制する場合はこちらに変更

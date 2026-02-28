@@ -1,0 +1,70 @@
+# Istio DestinationRule サンプル
+# 役割: 送信先Serviceへのトラフィックポリシーを定義
+#   - mTLS設定 (サービス間通信の暗号化)
+#   - サーキットブレーカー (Circuit Breaker)
+#   - ロードバランシングアルゴリズム
+
+# --- Grafana DestinationRule (mTLS有効化) ---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: grafana-dr
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-dr
+    app.kubernetes.io/component: traffic-policy
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  host: grafana
+  trafficPolicy:
+    # mTLS: サービス間通信を相互TLSで暗号化
+    tls:
+      mode: ISTIO_MUTUAL
+
+---
+# --- Prometheus DestinationRule (サーキットブレーカー付き) ---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: prometheus-dr
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus-dr
+    app.kubernetes.io/component: traffic-policy
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  host: prometheus
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    # サーキットブレーカー設定
+    # 連続エラーが閾値を超えたとき、そのエンドポイントを一時的に除外する
+    outlierDetection:
+      # 5xx エラーが5回連続したらエンドポイントを除外
+      consecutive5xxErrors: 5
+      # 除外判定の評価間隔
+      interval: 30s
+      # 除外後の待機時間 (この時間後に再試行)
+      baseEjectionTime: 30s
+      # 最大除外率 (全エンドポイントの50%まで除外可能)
+      maxEjectionPercent: 50
+
+---
+# --- VictoriaMetrics DestinationRule ---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: victoria-metrics-dr
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: victoria-metrics-dr
+    app.kubernetes.io/component: traffic-policy
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  host: victoria-metrics
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

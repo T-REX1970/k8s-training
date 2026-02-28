@@ -1,0 +1,127 @@
+# Jaeger All-in-One デプロイメント (開発・学習用)
+# 本番ではJaeger Operator + Cassandra/Elasticsearchを推奨
+# コンポーネントが1Podに集約: Collector + Query + Agent + UI
+# ストレージ: In-Memory (Pod再起動でデータ消去)
+#
+# ポート一覧:
+#   6831/UDP : Jaeger Agent (Thriftコンパクト形式)
+#   6832/UDP : Jaeger Agent (Thriftバイナリ形式)
+#   5778     : サンプリング設定API
+#   16686    : Jaeger UI
+#   14268    : HTTPコレクター
+#   14250    : gRPCコレクター (OpenTelemetryから受信)
+#   4317     : OTLP gRPC (OpenTelemetry Protocolの標準ポート)
+#   4318     : OTLP HTTP
+#   9411     : Zipkin互換
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/instance: jaeger
+    app.kubernetes.io/version: "1.53.0"
+    app.kubernetes.io/component: tracing
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jaeger
+      app.kubernetes.io/instance: jaeger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jaeger
+        app.kubernetes.io/instance: jaeger
+        app.kubernetes.io/version: "1.53.0"
+        app.kubernetes.io/component: tracing
+        app.kubernetes.io/part-of: k8s-observability
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "14269"
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        runAsNonRoot: true
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.53.0
+          env:
+            # In-Memoryストレージ (学習用)
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+            - name: SPAN_STORAGE_TYPE
+              value: "memory"
+            # 最大スパン保持数 (メモリ保護)
+            - name: MEMORY_MAX_TRACES
+              value: "50000"
+          ports:
+            - name: jaeger-thrift
+              containerPort: 6831
+              protocol: UDP
+            - name: jaeger-binary
+              containerPort: 6832
+              protocol: UDP
+            - name: sampling
+              containerPort: 5778
+              protocol: TCP
+            - name: ui
+              containerPort: 16686
+              protocol: TCP
+            - name: collector-http
+              containerPort: 14268
+              protocol: TCP
+            - name: collector-grpc
+              containerPort: 14250
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: zipkin
+              containerPort: 9411
+              protocol: TCP
+            - name: admin
+              containerPort: 14269
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: admin
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

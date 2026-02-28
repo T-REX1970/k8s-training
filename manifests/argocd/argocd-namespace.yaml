@@ -1,0 +1,9 @@
+# ArgoCD専用Namespace
+# monitoringと分離することでRBACの境界を明確にする
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl

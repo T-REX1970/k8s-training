@@ -1,0 +1,76 @@
+# JaegerのService
+# UIはNodePort 30686でアクセス可能
+# アプリからトレースを送る際はClusterIP経由でアクセス
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/instance: jaeger
+    app.kubernetes.io/version: "1.53.0"
+    app.kubernetes.io/component: tracing
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/instance: jaeger
+  ports:
+    # Jaeger UI
+    - name: ui
+      port: 16686
+      targetPort: ui
+      protocol: TCP
+      nodePort: 30686
+    # OTLP gRPC (OpenTelemetryからのトレース受信)
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    # OTLP HTTP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+    # HTTPコレクター (Jaeger Agent経由の受信)
+    - name: collector-http
+      port: 14268
+      targetPort: collector-http
+      protocol: TCP
+    # サンプリング設定
+    - name: sampling
+      port: 5778
+      targetPort: sampling
+      protocol: TCP
+
+---
+# UDP用の別Service (Jaeger Agent Thrift形式)
+# UDPはNodePortと同一のServiceに混在させられないため分離
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-agent
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/instance: jaeger
+    app.kubernetes.io/component: tracing-agent
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/instance: jaeger
+  ports:
+    - name: jaeger-thrift
+      port: 6831
+      targetPort: jaeger-thrift
+      protocol: UDP
+    - name: jaeger-binary
+      port: 6832
+      targetPort: jaeger-binary
+      protocol: UDP

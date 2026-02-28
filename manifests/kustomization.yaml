@@ -1,0 +1,61 @@
+# Kustomize設定
+# 全リソースを一括で適用・削除するためのエントリーポイント
+# 使用方法:
+#   kubectl apply -k manifests/
+#   kubectl delete -k manifests/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # 1. 名前空間 (最初に作成)
+  - namespace.yaml
+
+  # 2. Prometheus (RBAC → ConfigMap → PVC → Deployment → Service の順)
+  - prometheus/prometheus-serviceaccount.yaml
+  - prometheus/prometheus-clusterrole.yaml
+  - prometheus/prometheus-clusterrolebinding.yaml
+  - prometheus/prometheus-configmap.yaml
+  - prometheus/prometheus-pvc.yaml
+  - prometheus/prometheus-deployment.yaml
+  - prometheus/prometheus-service.yaml
+
+  # 3. VictoriaMetrics
+  - victoria-metrics/victoria-metrics-pvc.yaml
+  - victoria-metrics/victoria-metrics-deployment.yaml
+  - victoria-metrics/victoria-metrics-service.yaml
+
+  # 4. Grafana
+  - grafana/grafana-configmap.yaml
+  - grafana/grafana-pvc.yaml
+  - grafana/grafana-deployment.yaml
+  - grafana/grafana-service.yaml
+
+  # 5. Jaeger
+  - jaeger/jaeger-deployment.yaml
+  - jaeger/jaeger-service.yaml
+
+  # 6. Loki + Promtail (ログ集約)
+  - loki/loki-configmap.yaml
+  - loki/loki-pvc.yaml
+  - loki/loki-deployment.yaml
+  - loki/loki-service.yaml
+  - loki/promtail-serviceaccount.yaml
+  - loki/promtail-clusterrole.yaml
+  - loki/promtail-clusterrolebinding.yaml
+  - loki/promtail-configmap.yaml
+  - loki/promtail-daemonset.yaml
+
+  # 7. Istio CRDサンプル (istioctl install 完了後に適用)
+  # 注意: Istio本体は scripts/install-istio.sh で別途インストールが必要
+  # - istio/istio-namespace-label.yaml   ← サイドカー注入有効化後に適用
+  # - istio/sample-gateway.yaml
+  # - istio/sample-virtualservice.yaml
+  # - istio/sample-destinationrule.yaml
+  # - istio/peer-authentication.yaml
+
+  # 8. ArgoCD Namespace
+  # 注意: ArgoCD本体は scripts/install-argocd.sh で別途インストールが必要
+  # Application CRDはArgoCD本体のインストール後に適用する
+  - argocd/argocd-namespace.yaml
+  # - argocd/argocd-application-monitoring.yaml  ← ArgoCD インストール後に適用
+  # - argocd/argocd-application-helm.yaml        ← Helm版を使う場合

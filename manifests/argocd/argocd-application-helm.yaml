@@ -1,0 +1,48 @@
+# ArgoCD Application (Helm版) サンプル
+# Helmチャートを ArgoCD で管理する場合の設定例
+# 適用タイミング: Helm版でデプロイした場合に使用
+#   kubectl apply -f manifests/argocd/argocd-application-helm.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: victoria-metrics-helm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: victoria-metrics-helm
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    # HelmリポジトリのURL
+    repoURL: https://victoriametrics.github.io/helm-charts
+    chart: victoria-metrics-single
+    targetRevision: "0.9.x"
+
+    # Helmの値をArgoCDで管理
+    helm:
+      releaseName: vm
+      # valuesFileをGitリポジトリから参照することも可能
+      values: |
+        server:
+          retentionPeriod: "30d"
+          service:
+            type: NodePort
+            nodePort: 30428
+          persistentVolume:
+            enabled: true
+            size: 5Gi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

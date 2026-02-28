@@ -1,0 +1,17 @@
+# Istioサイドカー自動インジェクション設定
+# このラベルを付けたNamespaceのPodに自動でEnvoyサイドカーが注入される
+# 適用タイミング: istioctl install 完了後
+#
+# 使用方法:
+#   kubectl apply -f manifests/istio/istio-namespace-label.yaml
+#   または
+#   kubectl label namespace monitoring istio-injection=enabled
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    # Istioサイドカー自動インジェクション有効化
+    istio-injection: enabled
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl

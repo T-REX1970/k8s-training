@@ -1,0 +1,83 @@
+# Grafanaのデータソース設定
+# Prometheus、VictoriaMetrics、Lokiの3つをデータソースとして登録
+# メトリクス比較 + ログ相関分析を1つのGrafanaで実現する構成
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/component: visualization
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # Prometheusデータソース (デフォルト)
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: true
+        jsonData:
+          timeInterval: "15s"
+
+      # VictoriaMetricsデータソース
+      # PromQL互換のため同じクエリが動作する
+      # MetricsQL固有の関数も利用可能
+      - name: VictoriaMetrics
+        type: prometheus
+        access: proxy
+        url: http://victoria-metrics:8428
+        isDefault: false
+        editable: true
+        jsonData:
+          timeInterval: "15s"
+
+      # LokiデータソースA (ログ集約)
+      # LogQLでログ検索・メトリクス変換が可能
+      # Grafana Exploreでメトリクスとログを相関分析できる
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        isDefault: false
+        editable: true
+        jsonData:
+          # Prometheusデータソースと紐づけてメトリクス-ログ相関を有効化
+          derivedFields:
+            - datasourceUid: prometheus
+              matcherRegex: "traceID=(\\w+)"
+              name: TraceID
+              url: "$${__value.raw}"
+
+---
+# Grafanaダッシュボードプロバイダー設定
+# /var/lib/grafana/dashboards 配下のJSONを自動読み込み
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/component: visualization
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: "default"
+        orgId: 1
+        folder: "Kubernetes"
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards

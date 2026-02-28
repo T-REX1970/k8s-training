@@ -1,0 +1,26 @@
+# PrometheusのService
+# type: NodePortでminikubeから直接アクセス可能
+# アクセス: minikube service prometheus -n monitoring
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/version: "v2.49.1"
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/instance: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+      protocol: TCP
+      nodePort: 30090

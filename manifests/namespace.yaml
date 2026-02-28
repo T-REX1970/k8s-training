@@ -1,0 +1,9 @@
+# monitoring名前空間
+# Prometheus、VictoriaMetrics、Grafana、Jaegerを収容する共通名前空間
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl

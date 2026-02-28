@@ -1,0 +1,83 @@
+# Istio VirtualService サンプル
+# 役割: Gatewayで受け付けたトラフィックをどのServiceに転送するかを定義
+# ここではホスト名ベースでGrafana・Prometheus・Jaegerにルーティング
+
+# --- Grafana ---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: grafana-vs
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana-vs
+    app.kubernetes.io/component: traffic-routing
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  hosts:
+    - "grafana.local"
+  gateways:
+    - observability-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: grafana
+            port:
+              number: 3000
+
+---
+# --- Prometheus ---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: prometheus-vs
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus-vs
+    app.kubernetes.io/component: traffic-routing
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  hosts:
+    - "prometheus.local"
+  gateways:
+    - observability-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: prometheus
+            port:
+              number: 9090
+
+---
+# --- Jaeger ---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: jaeger-vs
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: jaeger-vs
+    app.kubernetes.io/component: traffic-routing
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  hosts:
+    - "jaeger.local"
+  gateways:
+    - observability-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: jaeger
+            port:
+              number: 16686

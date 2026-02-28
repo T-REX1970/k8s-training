@@ -1,0 +1,69 @@
+# Jaeger カスタム値
+# チャート: jaegertracing/jaeger
+# リリース名: jaeger
+# モード: All-in-One (学習・開発向け)
+# ストレージ: In-Memory (Pod再起動でリセット)
+#
+# インストール後のサービス名:
+#   jaeger-query     : UI + Query API (NodePort 30686)
+#   jaeger-collector : トレース受信 (ClusterIP)
+#   jaeger-agent     : UDP受信 (ClusterIP)
+#
+# OTLPエンドポイント (アプリからトレースを送る):
+#   gRPC: jaeger-collector.monitoring:14250
+#   HTTP: jaeger-collector.monitoring:14268
+#   OTLP gRPC: jaeger-collector.monitoring:4317
+#   OTLP HTTP: jaeger-collector.monitoring:4318
+
+# All-in-One モードを使用 (Collector+Query+UI が1Podに集約)
+allInOne:
+  enabled: true
+  image:
+    tag: "1.53.0"
+
+  # OTLPレシーバーを有効化
+  args:
+    - "--collector.otlp.enabled=true"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "14269"
+
+# All-in-Oneを使うため個別コンポーネントは無効化
+collector:
+  enabled: false
+
+query:
+  enabled: false
+
+agent:
+  enabled: false
+
+# ストレージ: In-Memory (学習環境)
+storage:
+  type: memory
+
+# データストアのプロビジョニング不要
+provisionDataStore:
+  cassandra: false
+  elasticsearch: false
+  kafka: false
+
+# Jaeger Query UI の NodePort 公開
+# All-in-One の場合、サービス名は jaeger-query になる
+ingress:
+  enabled: false
+
+# All-in-One用のサービス設定
+# NodePort でUIをminikubeから直接アクセス可能にする
+# ※ HelmチャートのallhinOne.serviceは直接設定できないため
+#    install後に以下コマンドでポートフォワードも可能:
+#    kubectl port-forward svc/jaeger-query -n monitoring 16686:16686

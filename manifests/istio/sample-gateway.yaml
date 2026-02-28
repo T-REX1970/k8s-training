@@ -1,0 +1,32 @@
+# Istio Gateway サンプル
+# 役割: クラスタ外部からのHTTPトラフィックを受け付けるエントリーポイント
+# ネットワーク的には: LoadBalancer/NodePort → Istio IngressGateway → VirtualService → Service → Pod
+#
+# Gatewayはトラフィックの「入り口」を定義する
+# VirtualServiceでルーティング先を決める (このファイルの下に定義)
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: observability-gateway
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: observability-gateway
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: k8s-observability
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  # Istio IngressGateway Pod を選択
+  selector:
+    istio: ingressgateway
+  servers:
+    # HTTP (ポート80) でGrafana・Prometheus・Jaeger・LokiへのアクセスをまとめてGatewayで受け付ける
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        # ホスト名でルーティング (minikubeではIP直アクセスも可能)
+        - "grafana.local"
+        - "prometheus.local"
+        - "jaeger.local"
+        - "victoria-metrics.local"
