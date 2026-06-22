@@ -1,0 +1,50 @@
+services:
+  ollama:
+    image: ollama/ollama:0.3.14
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+  llm-service:
+    build:
+      context: ./services/llm-service
+    environment:
+      PORT: "8080"
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      OLLAMA_MODEL: "llama3.2:1b"
+    ports:
+      - "8082:8080"
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  chat-service:
+    build:
+      context: ./services/chat-service
+    environment:
+      PORT: "8080"
+      LLM_SERVICE_URL: "http://llm-service:8080"
+    ports:
+      - "8081:8080"
+    depends_on:
+      - llm-service
+    restart: unless-stopped
+
+  gateway-api:
+    build:
+      context: ./services/gateway-api
+    environment:
+      PORT: "8080"
+      CHAT_SERVICE_URL: "http://chat-service:8080"
+      RATE_LIMIT_RPS: "10"
+      RATE_LIMIT_BURST: "20"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - chat-service
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
