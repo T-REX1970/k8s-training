@@ -11,9 +11,13 @@ SREとしてPrometheus / Grafana / Jaeger / Istio / ArgoCD / Langfuse / LLM-as-j
 client -> gateway-api -> chat-service -> llm-service -> Ollama
 ```
 
-- `gateway-api`: `POST /api/chat`をchat-serviceにリバースプロキシ。レート制限、request-id付与。
+- `gateway-api`: `POST /api/chat`をchat-serviceにリバースプロキシ。レート制限、request-id付与。`GET /`でブラウザ用チャットUIも配信する。
 - `chat-service`: セッション単位の会話履歴をメモリ保持し、プロンプトを組み立ててllm-serviceを呼ぶ（RAGはPhase 2で追加）。
 - `llm-service`: Ollamaの`/api/generate`を呼び出す（モデル名は`OLLAMA_MODEL`環境変数で切替可能、Phase 5のカナリアで利用）。
+
+### ブラウザチャットUI
+
+`gateway-api`がHTML/CSS/JSを`go:embed`でバイナリに埋め込んで配信するため、追加のフロントエンドサービスやNode.jsツールチェインは不要。`http://localhost:8080/`にアクセスするとチャット画面が開く。`session_id`と会話履歴はブラウザのlocalStorageに保持（サーバ側はchat-serviceのメモリ上セッションのみ、再起動で消える点はPhase 0の制約として変わらず）。
 
 各サービス共通:
 - `GET /healthz`: liveness

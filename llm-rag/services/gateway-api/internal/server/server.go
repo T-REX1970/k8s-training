@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/user/llm-rag/services/gateway-api/internal/config"
 	"github.com/user/llm-rag/services/gateway-api/internal/handler"
 	"github.com/user/llm-rag/services/gateway-api/internal/middleware"
+	"github.com/user/llm-rag/services/gateway-api/web"
 )
 
 func New(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
@@ -30,12 +32,39 @@ func New(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
 	router.GET("/readyz", handler.Readyz(cfg.ChatServiceURL))
 	router.POST("/api/chat", chatProxy)
 
+	if err := mountWebUI(router); err != nil {
+		return nil, err
+	}
+
 	return &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}, nil
+}
+
+// mountWebUI serves the embedded browser chat UI: index.html at "/" and
+// its assets (app.js, style.css) under "/static". Assets are compiled into
+// the binary via go:embed, so the distroless runtime image needs no
+// separate static file copy step.
+func mountWebUI(router *gin.Engine) error {
+	indexHTML, err := web.FS.ReadFile("static/index.html")
+	if err != nil {
+		return err
+	}
+
+	staticFS, err := fs.Sub(web.FS, "static")
+	if err != nil {
+		return err
+	}
+
+	router.GET("/", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+	})
+	router.StaticFS("/static", http.FS(staticFS))
+
+	return nil
 }
 
 // Run starts the HTTP server and blocks until ctx is cancelled, then
