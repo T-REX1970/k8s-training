@@ -1,0 +1,79 @@
+# gateway-api デプロイメント
+# クライアント(ブラウザ)からの唯一の入口。/api/chatをchat-serviceにリバースプロキシし、
+# レート制限・request-id付与を行う。go:embedで配信するチャットUIも同梱。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-api
+  namespace: llm-rag
+  labels:
+    app.kubernetes.io/name: gateway-api
+    app.kubernetes.io/instance: gateway-api
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: llm-rag
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway-api
+      app.kubernetes.io/instance: gateway-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gateway-api
+        app.kubernetes.io/instance: gateway-api
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/part-of: llm-rag
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: gateway-api
+          image: llm-rag/gateway-api:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "8080"
+            - name: CHAT_SERVICE_URL
+              value: "http://chat-service:8080"
+            - name: RATE_LIMIT_RPS
+              value: "10"
+            - name: RATE_LIMIT_BURST
+              value: "20"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3

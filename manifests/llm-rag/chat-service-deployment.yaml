@@ -1,0 +1,74 @@
+# chat-service デプロイメント
+# セッション単位の会話履歴をメモリ保持し、llm-serviceを呼び出すGo/Ginサービス
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-service
+  namespace: llm-rag
+  labels:
+    app.kubernetes.io/name: chat-service
+    app.kubernetes.io/instance: chat-service
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: llm-rag
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chat-service
+      app.kubernetes.io/instance: chat-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chat-service
+        app.kubernetes.io/instance: chat-service
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: llm-rag
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: chat-service
+          image: llm-rag/chat-service:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "8080"
+            - name: LLM_SERVICE_URL
+              value: "http://llm-service:8080"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3

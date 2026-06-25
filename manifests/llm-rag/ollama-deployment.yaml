@@ -1,0 +1,85 @@
+# Ollama (ローカルLLM推論サーバー) デプロイメント
+# llm-serviceから/api/generateで呼び出される
+#
+# 注意: ollama/ollama公式イメージはrootユーザー前提で$HOME/.ollamaにモデルを保存する
+# (イメージにUSER指定がなく、デフォルトでHOME=/root)。
+# CLAUDE.mdのrunAsNonRoot必須規約を満たすため、HOMEを永続化PVCのマウント先に
+# 上書きし、非rootユーザーで動作できるようにしている。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: llm-rag
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/instance: ollama
+    app.kubernetes.io/version: "0.3.14"
+    app.kubernetes.io/component: llm-runtime
+    app.kubernetes.io/part-of: llm-rag
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+      app.kubernetes.io/instance: ollama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ollama
+        app.kubernetes.io/instance: ollama
+        app.kubernetes.io/version: "0.3.14"
+        app.kubernetes.io/component: llm-runtime
+        app.kubernetes.io/part-of: llm-rag
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.3.14
+          env:
+            - name: HOME
+              value: /data
+          ports:
+            - name: ollama
+              containerPort: 11434
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: ollama
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: ollama
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ollama-data

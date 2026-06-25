@@ -1,0 +1,24 @@
+# OllamaのService
+# クラスタ内部からのみアクセス(llm-service経由)、外部公開はしない
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: llm-rag
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/instance: ollama
+    app.kubernetes.io/version: "0.3.14"
+    app.kubernetes.io/component: llm-runtime
+    app.kubernetes.io/part-of: llm-rag
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/instance: ollama
+  ports:
+    - name: ollama
+      port: 11434
+      targetPort: ollama
+      protocol: TCP
