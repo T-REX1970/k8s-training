@@ -1,0 +1,23 @@
+# retrieval-service ClusterIP Service
+# chat-serviceとgateway-apiからアクセスする
+apiVersion: v1
+kind: Service
+metadata:
+  name: retrieval-service
+  namespace: llm-rag
+  labels:
+    app.kubernetes.io/name: retrieval-service
+    app.kubernetes.io/instance: retrieval-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: llm-rag
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: retrieval-service
+    app.kubernetes.io/instance: retrieval-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

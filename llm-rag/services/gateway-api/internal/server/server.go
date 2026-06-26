@@ -21,6 +21,11 @@ func New(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
 		return nil, err
 	}
 
+	docsProxy, err := handler.DocumentsProxy(cfg.RetrievalServiceURL)
+	if err != nil {
+		return nil, err
+	}
+
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -31,6 +36,9 @@ func New(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
 	router.GET("/healthz", handler.Healthz)
 	router.GET("/readyz", handler.Readyz(cfg.ChatServiceURL))
 	router.POST("/api/chat", chatProxy)
+	// ドキュメント管理API: /api/documents → retrieval-service /documents
+	router.POST("/api/documents", docsProxy)
+	router.GET("/api/documents", docsProxy)
 
 	if err := mountWebUI(router); err != nil {
 		return nil, err

@@ -1,5 +1,6 @@
 # gateway-api デプロイメント
-# クライアント(ブラウザ)からの唯一の入口。/api/chatをchat-serviceにリバースプロキシし、
+# クライアント(ブラウザ)からの唯一の入口。/api/chatをchat-serviceに、
+# /api/documentsをretrieval-serviceにリバースプロキシし、
 # レート制限・request-id付与を行う。go:embedで配信するチャットUIも同梱。
 apiVersion: apps/v1
 kind: Deployment
@@ -41,6 +42,8 @@ spec:
               value: "8080"
             - name: CHAT_SERVICE_URL
               value: "http://chat-service:8080"
+            - name: RETRIEVAL_SERVICE_URL
+              value: "http://retrieval-service:8080"
             - name: RATE_LIMIT_RPS
               value: "10"
             - name: RATE_LIMIT_BURST

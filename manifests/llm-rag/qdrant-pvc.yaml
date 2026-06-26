@@ -1,0 +1,19 @@
+# Qdrantベクトルデータベース永続化用PVC
+# embedding-serviceが生成したベクトルとドキュメントチャンクを保存する
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-data
+  namespace: llm-rag
+  labels:
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: qdrant
+    app.kubernetes.io/component: vector-store
+    app.kubernetes.io/part-of: llm-rag
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi

@@ -14,14 +14,27 @@ resources:
   - ollama-deployment.yaml
   - ollama-service.yaml
 
-  # 3. llm-service
+  # 3. Qdrant ベクトルDB (PVC → Deployment → Service)
+  - qdrant-pvc.yaml
+  - qdrant-deployment.yaml
+  - qdrant-service.yaml
+
+  # 4. embedding-service (Ollama embeddingsのラッパー)
+  - embedding-service-deployment.yaml
+  - embedding-service-service.yaml
+
+  # 5. retrieval-service (RAGのドキュメント管理・類似検索)
+  - retrieval-service-deployment.yaml
+  - retrieval-service-service.yaml
+
+  # 6. llm-service
   - llm-service-deployment.yaml
   - llm-service-service.yaml
 
-  # 4. chat-service
+  # 7. chat-service (RAGコンテキストを取得してLLMを呼び出す)
   - chat-service-deployment.yaml
   - chat-service-service.yaml
 
-  # 5. gateway-api (NodePort 30880で外部公開)
+  # 8. gateway-api (NodePort 30880で外部公開)
   - gateway-api-deployment.yaml
   - gateway-api-service.yaml

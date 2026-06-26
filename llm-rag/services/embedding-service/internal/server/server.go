@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/user/llm-rag/services/chat-service/internal/config"
-	"github.com/user/llm-rag/services/chat-service/internal/handler"
-	"github.com/user/llm-rag/services/chat-service/internal/middleware"
+	"github.com/user/llm-rag/services/embedding-service/internal/config"
+	"github.com/user/llm-rag/services/embedding-service/internal/handler"
+	"github.com/user/llm-rag/services/embedding-service/internal/middleware"
 )
 
 func New(cfg config.Config, logger *slog.Logger) *http.Server {
-	chatHandler := handler.NewChatHandler(cfg.LLMServiceURL, cfg.RetrievalServiceURL)
+	embedHandler := handler.NewEmbedHandler(cfg.OllamaBaseURL, cfg.OllamaModel)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -23,8 +23,8 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	router.Use(middleware.StructuredLogger(logger))
 
 	router.GET("/healthz", handler.Healthz)
-	router.GET("/readyz", handler.Readyz(cfg.LLMServiceURL))
-	router.POST("/chat", chatHandler.Handle)
+	router.GET("/readyz", handler.Readyz(cfg.OllamaBaseURL))
+	router.POST("/embed", embedHandler.Handle)
 
 	return &http.Server{
 		Addr:         ":" + cfg.Port,

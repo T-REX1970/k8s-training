@@ -1,0 +1,23 @@
+# embedding-service ClusterIP Service
+# retrieval-serviceからのみアクセスする内部サービス
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedding-service
+  namespace: llm-rag
+  labels:
+    app.kubernetes.io/name: embedding-service
+    app.kubernetes.io/instance: embedding-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: llm-rag
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: embedding-service
+    app.kubernetes.io/instance: embedding-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

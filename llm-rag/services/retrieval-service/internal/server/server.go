@@ -8,13 +8,20 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/user/llm-rag/services/chat-service/internal/config"
-	"github.com/user/llm-rag/services/chat-service/internal/handler"
-	"github.com/user/llm-rag/services/chat-service/internal/middleware"
+	"github.com/user/llm-rag/services/retrieval-service/internal/config"
+	"github.com/user/llm-rag/services/retrieval-service/internal/embedclient"
+	"github.com/user/llm-rag/services/retrieval-service/internal/handler"
+	"github.com/user/llm-rag/services/retrieval-service/internal/middleware"
+	"github.com/user/llm-rag/services/retrieval-service/internal/vectorstore"
 )
 
 func New(cfg config.Config, logger *slog.Logger) *http.Server {
-	chatHandler := handler.NewChatHandler(cfg.LLMServiceURL, cfg.RetrievalServiceURL)
+	embedder := embedclient.New(cfg.EmbeddingServiceURL)
+	store := vectorstore.New(cfg.QdrantURL)
+
+	docIndex := handler.NewDocumentIndex()
+	docHandler := handler.NewDocumentHandler(embedder, store, docIndex)
+	searchHandler := handler.NewSearchHandler(embedder, store)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -23,8 +30,10 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	router.Use(middleware.StructuredLogger(logger))
 
 	router.GET("/healthz", handler.Healthz)
-	router.GET("/readyz", handler.Readyz(cfg.LLMServiceURL))
-	router.POST("/chat", chatHandler.Handle)
+	router.GET("/readyz", handler.Readyz(embedder, store))
+	router.POST("/documents", docHandler.Ingest)
+	router.GET("/documents", docHandler.List)
+	router.POST("/search", searchHandler.Handle)
 
 	return &http.Server{
 		Addr:         ":" + cfg.Port,

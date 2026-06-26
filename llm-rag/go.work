@@ -4,4 +4,6 @@ use (
 	./services/gateway-api
 	./services/chat-service
 	./services/llm-service
+	./services/embedding-service
+	./services/retrieval-service
 )

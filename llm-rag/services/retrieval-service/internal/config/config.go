@@ -7,16 +7,16 @@ import (
 
 type Config struct {
 	Port                string
-	LLMServiceURL       string
-	RetrievalServiceURL string
+	EmbeddingServiceURL string
+	QdrantURL           string
 	ShutdownTimeout     time.Duration
 }
 
 func Load() Config {
 	return Config{
 		Port:                getEnv("PORT", "8080"),
-		LLMServiceURL:       getEnv("LLM_SERVICE_URL", "http://llm-service:8080"),
-		RetrievalServiceURL: getEnv("RETRIEVAL_SERVICE_URL", "http://retrieval-service:8080"),
+		EmbeddingServiceURL: getEnv("EMBEDDING_SERVICE_URL", "http://embedding-service:8080"),
+		QdrantURL:           getEnv("QDRANT_URL", "http://qdrant:6333"),
 		ShutdownTimeout:     10 * time.Second,
 	}
 }

@@ -7,20 +7,22 @@ import (
 )
 
 type Config struct {
-	Port            string
-	ChatServiceURL  string
-	RateLimitRPS    float64
-	RateLimitBurst  int
-	ShutdownTimeout time.Duration
+	Port                string
+	ChatServiceURL      string
+	RetrievalServiceURL string
+	RateLimitRPS        float64
+	RateLimitBurst      int
+	ShutdownTimeout     time.Duration
 }
 
 func Load() Config {
 	return Config{
-		Port:            getEnv("PORT", "8080"),
-		ChatServiceURL:  getEnv("CHAT_SERVICE_URL", "http://chat-service:8080"),
-		RateLimitRPS:    getEnvFloat("RATE_LIMIT_RPS", 10),
-		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 20),
-		ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		Port:                getEnv("PORT", "8080"),
+		ChatServiceURL:      getEnv("CHAT_SERVICE_URL", "http://chat-service:8080"),
+		RetrievalServiceURL: getEnv("RETRIEVAL_SERVICE_URL", "http://retrieval-service:8080"),
+		RateLimitRPS:        getEnvFloat("RATE_LIMIT_RPS", 10),
+		RateLimitBurst:      getEnvInt("RATE_LIMIT_BURST", 20),
+		ShutdownTimeout:     getEnvDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
 	}
 }
 

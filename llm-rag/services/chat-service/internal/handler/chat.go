@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -63,16 +64,18 @@ type generateResponse struct {
 }
 
 type ChatHandler struct {
-	llmServiceURL string
-	httpClient    *http.Client
-	store         *SessionStore
+	llmServiceURL       string
+	retrievalServiceURL string
+	httpClient          *http.Client
+	store               *SessionStore
 }
 
-func NewChatHandler(llmServiceURL string) *ChatHandler {
+func NewChatHandler(llmServiceURL, retrievalServiceURL string) *ChatHandler {
 	return &ChatHandler{
-		llmServiceURL: llmServiceURL,
-		httpClient:    &http.Client{Timeout: 60 * time.Second},
-		store:         NewSessionStore(),
+		llmServiceURL:       llmServiceURL,
+		retrievalServiceURL: retrievalServiceURL,
+		httpClient:          &http.Client{Timeout: 60 * time.Second},
+		store:               NewSessionStore(),
 	}
 }
 
@@ -89,7 +92,16 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 	}
 
 	history := h.store.history(sessionID)
-	prompt := buildPrompt(history, req.Message)
+
+	// RAGコンテキスト取得: retrieval-serviceが利用不可でもチャットは継続する
+	var contextChunks []string
+	if h.retrievalServiceURL != "" {
+		if chunks, err := h.searchContext(c.Request.Context(), req.Message); err == nil {
+			contextChunks = chunks
+		}
+	}
+
+	prompt := buildPrompt(history, req.Message, contextChunks)
 
 	reply, err := h.callLLMService(c, prompt)
 	if err != nil {
@@ -103,6 +115,61 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 	c.JSON(http.StatusOK, chatResponse{SessionID: sessionID, Response: reply})
 }
 
+type retrievalSearchRequest struct {
+	Text string `json:"text"`
+	TopK int    `json:"top_k"`
+}
+
+type retrievalChunk struct {
+	Text  string  `json:"text"`
+	Score float64 `json:"score"`
+}
+
+type retrievalSearchResponse struct {
+	Chunks []retrievalChunk `json:"chunks"`
+}
+
+// searchContext calls retrieval-service for relevant document chunks.
+// A short deadline keeps the LLM response latency bounded even if Qdrant is slow.
+func (h *ChatHandler) searchContext(ctx context.Context, query string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	body, err := json.Marshal(retrievalSearchRequest{Text: query, TopK: 3})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.retrievalServiceURL+"/search", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("retrieval-service returned %d", resp.StatusCode)
+	}
+
+	var out retrievalSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+
+	texts := make([]string, 0, len(out.Chunks))
+	for _, ch := range out.Chunks {
+		if ch.Text != "" {
+			texts = append(texts, ch.Text)
+		}
+	}
+	return texts, nil
+}
+
 func newSessionID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -111,8 +178,18 @@ func newSessionID() string {
 	return hex.EncodeToString(b)
 }
 
-func buildPrompt(history []turn, message string) string {
+// buildPrompt assembles the LLM prompt from history, optional RAG context, and the new message.
+func buildPrompt(history []turn, message string, contextChunks []string) string {
 	var b strings.Builder
+
+	if len(contextChunks) > 0 {
+		b.WriteString("以下のコンテキスト情報を参考に、ユーザーの質問に答えてください。\n\nコンテキスト:\n")
+		for _, chunk := range contextChunks {
+			fmt.Fprintf(&b, "- %s\n", chunk)
+		}
+		b.WriteString("\n")
+	}
+
 	for _, t := range history {
 		fmt.Fprintf(&b, "%s: %s\n", t.Role, t.Content)
 	}
