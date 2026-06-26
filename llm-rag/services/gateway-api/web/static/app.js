@@ -14,6 +14,138 @@
   const sendBtn = document.getElementById("send-btn");
   const sessionLabelEl = document.getElementById("session-label");
 
+  // ---- ドキュメント管理 ----
+  const tabChatEl = document.getElementById("tab-chat");
+  const tabDocsEl = document.getElementById("tab-docs");
+  const docsViewEl = document.getElementById("docs-view");
+  const composerBarEl = document.querySelector(".composer-bar");
+  const ragBadgeEl = document.getElementById("rag-badge");
+  const docTitleEl = document.getElementById("doc-title");
+  const docTextEl = document.getElementById("doc-text");
+  const docsSubmitEl = document.getElementById("docs-submit");
+  const docsStatusEl = document.getElementById("docs-status");
+  const docsListEl = document.getElementById("docs-list");
+  const docsRefreshEl = document.getElementById("docs-refresh");
+
+  let currentView = "chat"; // "chat" | "docs"
+  let docCount = 0;
+
+  function switchView(view) {
+    currentView = view;
+    const isChat = view === "chat";
+
+    tabChatEl.classList.toggle("active", isChat);
+    tabDocsEl.classList.toggle("active", !isChat);
+
+    messagesEl.hidden = !isChat;
+    composerBarEl.hidden = !isChat;
+    docsViewEl.hidden = isChat;
+
+    if (isChat) {
+      conversationTitleEl.textContent =
+        findConversation(activeId)?.title || "新しい会話";
+      sessionLabelEl.hidden = false;
+    } else {
+      conversationTitleEl.textContent = "ドキュメント管理";
+      sessionLabelEl.hidden = true;
+      loadDocuments();
+    }
+  }
+
+  function setDocsStatus(msg, type) {
+    docsStatusEl.textContent = msg;
+    docsStatusEl.className = "docs-status" + (type ? " " + type : "");
+  }
+
+  async function ingestDocument() {
+    const title = docTitleEl.value.trim();
+    const text = docTextEl.value.trim();
+    if (!text) {
+      setDocsStatus("テキストを入力してください。", "error");
+      return;
+    }
+
+    docsSubmitEl.disabled = true;
+    setDocsStatus("登録中...");
+
+    try {
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+      setDocsStatus(
+        `登録完了 — ${data.chunks} チャンクに分割されました。`,
+        "success"
+      );
+      docTitleEl.value = "";
+      docTextEl.value = "";
+      loadDocuments();
+    } catch (err) {
+      setDocsStatus(`エラー: ${err.message}`, "error");
+    } finally {
+      docsSubmitEl.disabled = false;
+    }
+  }
+
+  async function loadDocuments() {
+    docsListEl.innerHTML = '<li class="docs-list-empty">読み込み中...</li>';
+    try {
+      const res = await fetch("/api/documents");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+      const docs = data.documents || [];
+      docCount = docs.length;
+      updateRagBadge();
+      renderDocumentList(docs);
+    } catch (err) {
+      docsListEl.innerHTML = `<li class="docs-list-empty">読み込みエラー: ${err.message}</li>`;
+    }
+  }
+
+  function renderDocumentList(docs) {
+    if (docs.length === 0) {
+      docsListEl.innerHTML =
+        '<li class="docs-list-empty">まだドキュメントが登録されていません。<br>上のフォームからテキストを登録してください。</li>';
+      return;
+    }
+
+    docsListEl.innerHTML = "";
+    docs.forEach((doc, i) => {
+      const li = document.createElement("li");
+      li.className = "docs-list-item";
+      li.innerHTML = `
+        <div class="docs-list-icon">📄</div>
+        <div class="docs-list-body">
+          <div class="docs-list-title">${escapeHtml(doc.title || "(タイトルなし)")}</div>
+          <div class="docs-list-meta">ID: ${doc.id ? doc.id.slice(0, 8) : "—"}…</div>
+        </div>
+      `;
+      docsListEl.appendChild(li);
+    });
+  }
+
+  function updateRagBadge() {
+    ragBadgeEl.textContent = docCount > 0 ? `文書 ${docCount} 件` : "";
+  }
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  tabChatEl.addEventListener("click", () => switchView("chat"));
+  tabDocsEl.addEventListener("click", () => switchView("docs"));
+  docsSubmitEl.addEventListener("click", ingestDocument);
+  docsRefreshEl.addEventListener("click", loadDocuments);
+
   let conversations = loadConversations();
   let activeId = localStorage.getItem(ACTIVE_ID_KEY) || "";
 
@@ -265,4 +397,13 @@
 
   renderSidebar();
   renderActiveConversation();
+
+  // 起動時にドキュメント数をバッジ表示するため件数だけ取得する
+  fetch("/api/documents")
+    .then((r) => r.json())
+    .then((data) => {
+      docCount = (data.documents || []).length;
+      updateRagBadge();
+    })
+    .catch(() => {});
 })();
