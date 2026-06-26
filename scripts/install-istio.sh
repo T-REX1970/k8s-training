@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Istio インストールスクリプト
-# istioctl を使って Istio をminikubeに導入する
-# Istioはマニフェストが複雑なため、istioctlによるインストールが公式推奨
-# 実行: bash scripts/install-istio.sh
+# Istio インストールスクリプト (Helm版)
+#
+# インストールするコンポーネント:
+#   1. istio-base      (CRD / クラスタ共通リソース)
+#   2. istiod          (コントロールプレーン)
+#   3. istio-ingressgateway (Ingress Gateway)
+#   4. Kiali           (サービスメッシュ可視化)
+#
+# 前提条件:
+#   - minikube が起動済み
+#   - helm コマンドが使用可能
+#   - observabilityスタック導入済み (Prometheus/Grafana/Jaeger)
+#
+# 実行方法:
+#   bash scripts/install-istio.sh
+#
+# アンインストール:
+#   bash scripts/install-istio.sh --uninstall
 # =============================================================================
 
 set -euo pipefail
@@ -12,151 +26,206 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
-section() { echo -e "\n${CYAN}=== $* ===${NC}"; }
+section() { echo -e "\n${CYAN}${BOLD}=== $* ===${NC}"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VALUES_DIR="${SCRIPT_DIR}/../helm/values"
 MANIFESTS_DIR="${SCRIPT_DIR}/../manifests"
+NAMESPACE="istio-system"
 
-# Istioバージョン
-ISTIO_VERSION="1.20.2"
+# ============================================================
+# アンインストールモード
+# ============================================================
+if [[ "${1:-}" == "--uninstall" ]]; then
+  section "Istio アンインストール"
+  warn "以下のHelmリリースを削除します:"
+  warn "  kiali / istio-ingressgateway / istiod / istio-base (namespace: ${NAMESPACE})"
+  read -rp "続行しますか? [y/N]: " confirm
+  [[ "${confirm}" =~ ^[Yy]$ ]] || { info "キャンセルしました"; exit 0; }
 
-# -------------------------------------------
+  helm uninstall kiali              -n "${NAMESPACE}" 2>/dev/null || warn "kiali は未インストール"
+  helm uninstall istio-ingressgateway -n "${NAMESPACE}" 2>/dev/null || warn "istio-ingressgateway は未インストール"
+  helm uninstall istiod             -n "${NAMESPACE}" 2>/dev/null || warn "istiod は未インストール"
+  helm uninstall istio-base         -n "${NAMESPACE}" 2>/dev/null || warn "istio-base は未インストール"
+  kubectl delete namespace "${NAMESPACE}" --ignore-not-found
+
+  # monitoring Namespaceのサイドカー注入ラベルを削除
+  kubectl label namespace monitoring istio-injection- 2>/dev/null || true
+
+  info "アンインストール完了"
+  exit 0
+fi
+
+# ============================================================
 # 前提条件チェック
-# -------------------------------------------
+# ============================================================
 section "前提条件確認"
 
-command -v kubectl >/dev/null 2>&1 || error "kubectlがインストールされていません"
-kubectl cluster-info >/dev/null 2>&1 || error "Kubernetesクラスタに接続できません"
+command -v kubectl >/dev/null 2>&1 || error "kubectl がインストールされていません"
+command -v helm    >/dev/null 2>&1 || error "helm がインストールされていません"
 
-# minikubeが十分なリソースを持っているか確認
-info "クラスタ情報:"
+kubectl cluster-info >/dev/null 2>&1 || error "Kubernetesクラスタに接続できません。minikubeを起動してください"
+
+CONTEXT=$(kubectl config current-context)
+info "クラスタコンテキスト: ${CONTEXT}"
 kubectl get nodes -o wide
 
-# -------------------------------------------
-# istioctlのインストール
-# -------------------------------------------
-section "istioctl インストール (v${ISTIO_VERSION})"
+# ============================================================
+# Helm リポジトリ追加・更新
+# ============================================================
+section "Helm リポジトリ設定"
 
-if command -v istioctl >/dev/null 2>&1; then
-  CURRENT_VERSION=$(istioctl version --remote=false 2>/dev/null | head -1 || echo "unknown")
-  info "istioctlは既にインストール済みです: ${CURRENT_VERSION}"
-else
-  info "istioctlをダウンロードしています..."
+helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+helm repo add kiali https://kiali.org/helm-charts                        2>/dev/null || true
+helm repo update
 
-  # 公式インストールスクリプトを使用
-  curl -L https://istio.io/downloadIstio | ISTIO_VERSION="${ISTIO_VERSION}" TARGET_ARCH=x86_64 sh -
+info "リポジトリ登録済み:"
+helm repo list
 
-  # PATHに追加
-  export PATH="${PWD}/istio-${ISTIO_VERSION}/bin:${PATH}"
+# ============================================================
+# Namespace 作成
+# ============================================================
+section "Namespace 作成"
 
-  info "istioctlをインストールしました"
-  info "恒久的にPATHに追加するには以下を~/.bashrcや~/.zshrcに追記してください:"
-  info "  export PATH=\"\${HOME}/istio-${ISTIO_VERSION}/bin:\${PATH}\""
-fi
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+info "Namespace '${NAMESPACE}' 準備完了"
 
-# -------------------------------------------
-# Istio のインストール (demo profile)
-# demo profile: 学習・検証向け (全機能有効、本番より軽量設定)
-# minimal profile: コントロールプレーンのみ
-# default profile: 本番向け標準設定
-# -------------------------------------------
-section "Istio インストール (demo profile)"
+# ============================================================
+# Step 1: istio-base (CRD + クラスタ共通リソース)
+# ============================================================
+section "Step 1/4: istio-base インストール"
 
-info "プロファイル: demo"
-info "  - istiod (コントロールプレーン)"
-info "  - istio-ingressgateway"
-info "  - istio-egressgateway"
-info "  - Kiali (サービスメッシュ可視化)"
-info "  - Jaeger (分散トレーシング統合)"
-info "  - Grafana (Istioダッシュボード)"
-info "  - Prometheus (Istioメトリクス)"
+info "リリース名: istio-base  |  チャート: istio/base"
+info "含まれるもの: Istio CRD (VirtualService, DestinationRule, Gateway など)"
 
-istioctl install --set profile=demo -y
+helm upgrade --install istio-base istio/base \
+  --namespace "${NAMESPACE}" \
+  --wait \
+  --timeout 5m
 
-info "Istioインストール完了"
+info "istio-base インストール完了"
 
-# -------------------------------------------
-# インストール確認
-# -------------------------------------------
-section "Istio インストール確認"
+# ============================================================
+# Step 2: istiod (コントロールプレーン)
+# ============================================================
+section "Step 2/4: istiod インストール"
 
-info "istio-system Namespace のPodを確認..."
-kubectl get pods -n istio-system
+info "リリース名: istiod  |  チャート: istio/istiod"
+info "含まれるもの: Pilot (設定配布) / サイドカー自動注入 Webhook"
 
-# -------------------------------------------
-# Istio アドオン (Kiali, Jaeger, Grafana, Prometheus) インストール
-# -------------------------------------------
-section "Istio アドオンインストール"
+helm upgrade --install istiod istio/istiod \
+  --namespace "${NAMESPACE}" \
+  --values "${VALUES_DIR}/istiod-values.yaml" \
+  --wait \
+  --timeout 10m
 
-ISTIO_DIR="${PWD}/istio-${ISTIO_VERSION}"
-if [ -d "${ISTIO_DIR}/samples/addons" ]; then
-  info "Kialiをインストール..."
-  kubectl apply -f "${ISTIO_DIR}/samples/addons/kiali.yaml"
+info "istiod インストール完了"
+info "  インストール確認: istioctl verify-install"
 
-  info "Jaeger (Istio統合版) をインストール..."
-  kubectl apply -f "${ISTIO_DIR}/samples/addons/jaeger.yaml"
+# ============================================================
+# Step 3: istio-ingressgateway
+# ============================================================
+section "Step 3/4: istio-ingressgateway インストール"
 
-  info "アドオンの反映を待機..."
-  kubectl rollout status deployment/kiali -n istio-system --timeout=120s
-else
-  warn "Istioアドオンディレクトリが見つかりません: ${ISTIO_DIR}/samples/addons"
-  warn "手動でistioctlダッシュボードを使用してください:"
-  warn "  istioctl dashboard kiali"
-fi
+info "リリース名: istio-ingressgateway  |  チャート: istio/gateway"
+info "NodePort: HTTP=30080 / HTTPS=30443"
 
-# -------------------------------------------
-# monitoring Namespaceへのサイドカー自動インジェクション
-# -------------------------------------------
-section "サイドカー自動インジェクション設定"
+helm upgrade --install istio-ingressgateway istio/gateway \
+  --namespace "${NAMESPACE}" \
+  --values "${VALUES_DIR}/istio-gateway-values.yaml" \
+  --wait \
+  --timeout 5m
 
-info "monitoring NamespaceにIstioサイドカー注入ラベルを付与..."
+info "istio-ingressgateway インストール完了"
+
+# ============================================================
+# Step 4: Kiali (サービスメッシュ可視化)
+# ============================================================
+section "Step 4/4: Kiali インストール"
+
+info "リリース名: kiali  |  チャート: kiali/kiali-server"
+info "含まれるもの: サービスグラフ / トラフィック可視化 / mTLS状態確認"
+
+helm upgrade --install kiali kiali/kiali-server \
+  --namespace "${NAMESPACE}" \
+  --values "${VALUES_DIR}/kiali-values.yaml" \
+  --wait \
+  --timeout 5m
+
+info "Kiali インストール完了"
+
+# ============================================================
+# monitoring Namespace へのサイドカー自動注入設定
+# ============================================================
+section "サイドカー自動注入設定"
+
+info "monitoring Namespace に Istio サイドカー注入ラベルを付与..."
 kubectl label namespace monitoring istio-injection=enabled --overwrite
 
 info "設定確認:"
 kubectl get namespace monitoring --show-labels
 
-warn "既存のPodにサイドカーを注入するには、Podを再起動してください:"
+warn "既存Podにサイドカーを注入するには再起動が必要です:"
 warn "  kubectl rollout restart deployment -n monitoring"
 
-# -------------------------------------------
-# サンプルIstioリソースの適用確認
-# -------------------------------------------
-section "Istioサンプルリソース"
+# ============================================================
+# Istioサンプルリソースの適用案内
+# ============================================================
+section "Istio サンプルリソース"
 
-info "サンプルCRD (Gateway/VirtualService/DestinationRule) の適用準備完了"
-info "適用コマンド:"
+info "以下のサンプルCRDが適用可能です (istiod起動後):"
+echo "  kubectl apply -f ${MANIFESTS_DIR}/istio/istio-namespace-label.yaml"
 echo "  kubectl apply -f ${MANIFESTS_DIR}/istio/sample-gateway.yaml"
 echo "  kubectl apply -f ${MANIFESTS_DIR}/istio/sample-virtualservice.yaml"
 echo "  kubectl apply -f ${MANIFESTS_DIR}/istio/sample-destinationrule.yaml"
 echo "  kubectl apply -f ${MANIFESTS_DIR}/istio/peer-authentication.yaml"
 
-# -------------------------------------------
-# 完了メッセージ
-# -------------------------------------------
+# ============================================================
+# 全体の起動確認
+# ============================================================
+section "起動確認"
+
+info "istio-system Namespace の Pod 状態:"
+kubectl get pods -n "${NAMESPACE}" -o wide
+
+echo ""
+info "istio-system Namespace の Service 状態:"
+kubectl get svc -n "${NAMESPACE}"
+
+# ============================================================
+# アクセス情報
+# ============================================================
+MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "127.0.0.1")
+
 section "インストール完了"
 
 echo ""
-info "各ダッシュボードへのアクセス方法:"
+echo -e "${BOLD}各サービスへのアクセス方法${NC}"
+echo "──────────────────────────────────────────────────────"
 echo ""
-echo "  # Kiali (サービスメッシュ可視化)"
-echo "  istioctl dashboard kiali"
+echo -e "${CYAN}Kiali${NC} (サービスメッシュ可視化)"
+echo "  NodePort : http://${MINIKUBE_IP}:$(kubectl get svc kiali -n ${NAMESPACE} -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo '20001')"
+echo "  pfwd     : kubectl port-forward svc/kiali -n ${NAMESPACE} 20001:20001"
+echo "             → http://localhost:20001"
 echo ""
-echo "  # Jaeger (Istio統合版)"
-echo "  istioctl dashboard jaeger"
+echo -e "${CYAN}Istio Ingress Gateway${NC}"
+echo "  HTTP  NodePort : http://${MINIKUBE_IP}:30080"
+echo "  HTTPS NodePort : https://${MINIKUBE_IP}:30443"
 echo ""
-echo "  # Grafana (Istioダッシュボード)"
-echo "  istioctl dashboard grafana"
+echo "──────────────────────────────────────────────────────"
 echo ""
-echo "  # Istio Ingress Gateway のURLを確認"
-echo "  minikube service istio-ingressgateway -n istio-system"
+echo -e "${CYAN}Helm リリース確認${NC}"
+echo "  helm list -n ${NAMESPACE}"
 echo ""
-echo "次のステップ:"
-echo "  1. monitoring Namespaceのポットを再起動してサイドカーを注入"
-echo "     kubectl rollout restart deployment -n monitoring"
-echo "  2. Kialiでサービスグラフを確認"
-echo "  3. mTLS設定 (peer-authentication.yaml) を適用"
+echo -e "${CYAN}アンインストール${NC}"
+echo "  bash scripts/install-istio.sh --uninstall"
+echo ""
+echo -e "${CYAN}次のステップ${NC}"
+echo "  ArgoCDのインストール:"
+echo "    bash scripts/install-argocd.sh"

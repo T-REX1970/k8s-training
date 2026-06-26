@@ -1,0 +1,39 @@
+# =============================================================================
+# Kiali (サービスメッシュ可視化) Helm values
+# チャート: kiali/kiali-server
+# 環境: minikube学習環境向け
+# =============================================================================
+
+# Prometheus接続先 (kube-prometheus-stack)
+external_services:
+  prometheus:
+    url: "http://monitoring-kube-prometheus-prometheus.monitoring:9090"
+  grafana:
+    enabled: true
+    url: "http://monitoring-grafana.monitoring:80"
+  tracing:
+    enabled: true
+    in_cluster_url: "http://jaeger.monitoring:16685"
+    use_grpc: true
+
+# 認証: 学習環境のため anonymous モード
+auth:
+  strategy: anonymous
+
+# UI設定
+deployment:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # NodePortでアクセス
+  service_type: NodePort
+
+server:
+  port: 20001
+  web_port: 20001

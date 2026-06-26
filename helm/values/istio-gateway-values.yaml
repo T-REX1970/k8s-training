@@ -1,0 +1,31 @@
+# =============================================================================
+# istio-ingressgateway Helm values
+# チャート: istio/gateway
+# 環境: minikube学習環境向け
+# =============================================================================
+
+# minikubeではNodePortでアクセス
+service:
+  type: NodePort
+  ports:
+    - name: http2
+      port: 80
+      targetPort: 8080
+      nodePort: 30080
+    - name: https
+      port: 443
+      targetPort: 8443
+      nodePort: 30443
+
+# 学習環境のためレプリカ1
+replicaCount: 1
+autoscaling:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

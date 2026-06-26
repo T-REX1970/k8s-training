@@ -25,6 +25,8 @@ server:
   service:
     type: NodePort
     nodePortHttp: 30808
+    # 30443 は Istio Ingress Gateway が使用中のため別ポートを指定
+    nodePortHttps: 30809
 
   resources:
     requests:

@@ -1,0 +1,38 @@
+# =============================================================================
+# istiod (Istioコントロールプレーン) Helm values
+# チャート: istio/istiod
+# 環境: minikube学習環境向け (リソース最小化)
+# =============================================================================
+
+# Pilotの設定 (istiod本体)
+pilot:
+  # 学習環境のためレプリカ1
+  replicaCount: 1
+  autoscaleEnabled: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# サイドカープロキシ (Envoy) のデフォルトリソース
+global:
+  proxy:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 40Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+# トレーシング設定 (Jaegerへ送信)
+# ※ global.tracer.zipkin.address は非推奨のため meshConfig を使用
+meshConfig:
+  defaultConfig:
+    tracing:
+      zipkin:
+        address: jaeger-collector.monitoring:9411
