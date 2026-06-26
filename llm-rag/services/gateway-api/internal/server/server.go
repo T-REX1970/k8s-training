@@ -21,6 +21,11 @@ func New(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
 		return nil, err
 	}
 
+	chatStreamProxy, err := handler.ChatStreamProxy(cfg.ChatServiceURL)
+	if err != nil {
+		return nil, err
+	}
+
 	docsProxy, err := handler.DocumentsProxy(cfg.RetrievalServiceURL)
 	if err != nil {
 		return nil, err
@@ -36,6 +41,7 @@ func New(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
 	router.GET("/healthz", handler.Healthz)
 	router.GET("/readyz", handler.Readyz(cfg.ChatServiceURL))
 	router.POST("/api/chat", chatProxy)
+	router.POST("/api/chat/stream", chatStreamProxy)
 	// ドキュメント管理API: /api/documents → retrieval-service /documents
 	router.POST("/api/documents", docsProxy)
 	router.GET("/api/documents", docsProxy)
@@ -48,7 +54,7 @@ func New(cfg config.Config, logger *slog.Logger) (*http.Server, error) {
 		Addr:         ":" + cfg.Port,
 		Handler:      router,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		WriteTimeout: 130 * time.Second,
 	}, nil
 }
 

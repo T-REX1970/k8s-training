@@ -15,8 +15,15 @@ type searchRequest struct {
 	TopK int    `json:"top_k"`
 }
 
+type chunkJSON struct {
+	Text  string  `json:"text"`
+	DocID string  `json:"doc_id"`
+	Title string  `json:"title"`
+	Score float64 `json:"score"`
+}
+
 type searchResponse struct {
-	Chunks []vectorstore.ScoredChunk `json:"chunks"`
+	Chunks []chunkJSON `json:"chunks"`
 }
 
 type SearchHandler struct {
@@ -52,5 +59,9 @@ func (h *SearchHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, searchResponse{Chunks: chunks})
+	out := make([]chunkJSON, 0, len(chunks))
+	for _, ch := range chunks {
+		out = append(out, chunkJSON{Text: ch.Text, DocID: ch.DocID, Title: ch.Title, Score: ch.Score})
+	}
+	c.JSON(http.StatusOK, searchResponse{Chunks: out})
 }

@@ -25,12 +25,13 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	router.GET("/healthz", handler.Healthz)
 	router.GET("/readyz", handler.Readyz(cfg.LLMServiceURL))
 	router.POST("/chat", chatHandler.Handle)
+	router.POST("/chat/stream", chatHandler.HandleStream)
 
 	return &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      router,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		WriteTimeout: 130 * time.Second,
 	}
 }
 

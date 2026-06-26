@@ -25,6 +25,7 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	router.GET("/healthz", handler.Healthz)
 	router.GET("/readyz", handler.Readyz(cfg.OllamaBaseURL))
 	router.POST("/generate", generateHandler.Handle)
+	router.POST("/generate/stream", generateHandler.HandleStream)
 
 	return &http.Server{
 		Addr:         ":" + cfg.Port,

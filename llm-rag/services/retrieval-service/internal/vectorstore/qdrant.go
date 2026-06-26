@@ -39,6 +39,8 @@ type Point struct {
 
 type ScoredChunk struct {
 	Text  string
+	DocID string
+	Title string
 	Score float64
 }
 
@@ -159,7 +161,9 @@ func (s *Store) Search(ctx context.Context, vector []float64, topK int) ([]Score
 		if text == "" {
 			continue
 		}
-		chunks = append(chunks, ScoredChunk{Text: text, Score: r.Score})
+		docID, _ := r.Payload["doc_id"].(string)
+		title, _ := r.Payload["title"].(string)
+		chunks = append(chunks, ScoredChunk{Text: text, DocID: docID, Title: title, Score: r.Score})
 	}
 	return chunks, nil
 }
