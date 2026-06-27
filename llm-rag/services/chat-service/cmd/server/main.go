@@ -16,7 +16,17 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := config.Load()
-	srv := server.New(cfg, logger)
+
+	srv, conns, err := server.New(cfg, logger)
+	if err != nil {
+		logger.Error("server_init_failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		for _, c := range conns {
+			c.Close()
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

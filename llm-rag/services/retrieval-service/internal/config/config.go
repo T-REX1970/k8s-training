@@ -7,6 +7,7 @@ import (
 
 type Config struct {
 	Port                string
+	GRPCPort            string
 	EmbeddingServiceURL string
 	QdrantURL           string
 	ShutdownTimeout     time.Duration
@@ -15,6 +16,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		Port:                getEnv("PORT", "8080"),
+		GRPCPort:            getEnv("GRPC_PORT", "9090"),
 		EmbeddingServiceURL: getEnv("EMBEDDING_SERVICE_URL", "http://embedding-service:8080"),
 		QdrantURL:           getEnv("QDRANT_URL", "http://qdrant:6333"),
 		ShutdownTimeout:     10 * time.Second,

@@ -1,6 +1,7 @@
 go 1.22
 
 use (
+	./gen
 	./services/gateway-api
 	./services/chat-service
 	./services/llm-service

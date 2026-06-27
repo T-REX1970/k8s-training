@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package retrieval.v1;
+
+option go_package = "github.com/user/llm-rag/gen/retrieval/v1;retrievalv1";
+
+service RetrievalService {
+  rpc Search(SearchRequest) returns (SearchResponse);
+}
+
+message SearchRequest {
+  string text  = 1;
+  int32  top_k = 2;
+}
+
+message SearchResponse {
+  repeated Chunk chunks = 1;
+}
+
+message Chunk {
+  string text   = 1;
+  string doc_id = 2;
+  string title  = 3;
+  float  score  = 4;
+}

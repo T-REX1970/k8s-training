@@ -11,10 +11,26 @@ import (
 	"github.com/user/llm-rag/services/chat-service/internal/config"
 	"github.com/user/llm-rag/services/chat-service/internal/handler"
 	"github.com/user/llm-rag/services/chat-service/internal/middleware"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-func New(cfg config.Config, logger *slog.Logger) *http.Server {
-	chatHandler := handler.NewChatHandler(cfg.LLMServiceURL, cfg.RetrievalServiceURL)
+func New(cfg config.Config, logger *slog.Logger) (*http.Server, []*grpc.ClientConn, error) {
+	// gRPC 接続は lazy dial なので起動時に下流が落ちていても問題ない
+	llmConn, err := grpc.NewClient(cfg.LLMServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	retrievalConn, err := grpc.NewClient(cfg.RetrievalServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		llmConn.Close()
+		return nil, nil, err
+	}
+
+	chatHandler := handler.NewChatHandler(llmConn, retrievalConn)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -23,20 +39,19 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	router.Use(middleware.StructuredLogger(logger))
 
 	router.GET("/healthz", handler.Healthz)
-	router.GET("/readyz", handler.Readyz(cfg.LLMServiceURL))
+	router.GET("/readyz", handler.Readyz)
 	router.POST("/chat", chatHandler.Handle)
 	router.POST("/chat/stream", chatHandler.HandleStream)
 
-	return &http.Server{
+	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 130 * time.Second,
 	}
+	return srv, []*grpc.ClientConn{llmConn, retrievalConn}, nil
 }
 
-// Run starts the HTTP server and blocks until ctx is cancelled, then
-// performs a graceful shutdown bounded by shutdownTimeout.
 func Run(ctx context.Context, srv *http.Server, logger *slog.Logger, shutdownTimeout time.Duration) error {
 	errCh := make(chan error, 1)
 	go func() {

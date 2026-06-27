@@ -7,6 +7,7 @@ import (
 
 type Config struct {
 	Port            string
+	GRPCPort        string
 	OllamaBaseURL   string
 	OllamaModel     string
 	ShutdownTimeout time.Duration
@@ -15,6 +16,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		Port:            getEnv("PORT", "8080"),
+		GRPCPort:        getEnv("GRPC_PORT", "9090"),
 		OllamaBaseURL:   getEnv("OLLAMA_BASE_URL", "http://ollama:11434"),
 		OllamaModel:     getEnv("OLLAMA_MODEL", "llama3.2:1b"),
 		ShutdownTimeout: 10 * time.Second,

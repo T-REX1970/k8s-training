@@ -1,20 +1,21 @@
 package handler
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/user/llm-rag/services/chat-service/internal/middleware"
+	llmv1 "github.com/user/llm-rag/gen/llm/v1"
+	retrievalv1 "github.com/user/llm-rag/gen/retrieval/v1"
+	"google.golang.org/grpc"
 )
 
 type chatRequest struct {
@@ -39,9 +40,6 @@ type turn struct {
 	Content string
 }
 
-// SessionStore keeps per-session conversation history in memory.
-// Phase 0 has no persistence backend yet (Redis arrives in a later phase),
-// so history is lost on restart - that's acceptable for local dev.
 type SessionStore struct {
 	mu       sync.Mutex
 	sessions map[string][]turn
@@ -63,31 +61,22 @@ func (s *SessionStore) append(sessionID string, t turn) {
 	s.sessions[sessionID] = append(s.sessions[sessionID], t)
 }
 
-type generateRequest struct {
-	Prompt string `json:"prompt"`
-}
-
-type generateResponse struct {
-	Response string `json:"response"`
-}
-
+// ChatHandler は gRPC クライアントで llm-service と retrieval-service を呼ぶ
 type ChatHandler struct {
-	llmServiceURL       string
-	retrievalServiceURL string
-	httpClient          *http.Client
-	store               *SessionStore
+	llmClient       llmv1.LLMServiceClient
+	retrievalClient retrievalv1.RetrievalServiceClient
+	store           *SessionStore
 }
 
-func NewChatHandler(llmServiceURL, retrievalServiceURL string) *ChatHandler {
+func NewChatHandler(llmConn, retrievalConn *grpc.ClientConn) *ChatHandler {
 	return &ChatHandler{
-		llmServiceURL:       llmServiceURL,
-		retrievalServiceURL: retrievalServiceURL,
-		httpClient:          &http.Client{Timeout: 60 * time.Second},
-		store:               NewSessionStore(),
+		llmClient:       llmv1.NewLLMServiceClient(llmConn),
+		retrievalClient: retrievalv1.NewRetrievalServiceClient(retrievalConn),
+		store:           NewSessionStore(),
 	}
 }
 
-// Handle is the non-streaming chat endpoint (POST /chat).
+// Handle は非ストリーミングチャット (POST /chat)
 func (h *ChatHandler) Handle(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -101,37 +90,28 @@ func (h *ChatHandler) Handle(c *gin.Context) {
 	}
 
 	history := h.store.history(sessionID)
+	chunks, sources, _ := h.searchContext(c.Request.Context(), req.Message)
+	prompt := buildPrompt(history, req.Message, chunks)
 
-	var sources []Source
-	var contextChunks []string
-	if h.retrievalServiceURL != "" {
-		if chunks, srcs, err := h.searchContext(c.Request.Context(), req.Message); err == nil {
-			contextChunks = chunks
-			sources = srcs
-		}
-	}
-
-	prompt := buildPrompt(history, req.Message, contextChunks)
-
-	reply, err := h.callLLMService(c, prompt)
+	resp, err := h.llmClient.Generate(c.Request.Context(), &llmv1.GenerateRequest{Prompt: prompt})
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("llm-service call failed: %v", err)})
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("llm-service: %v", err)})
 		return
 	}
 
 	h.store.append(sessionID, turn{Role: "user", Content: req.Message})
-	h.store.append(sessionID, turn{Role: "assistant", Content: reply})
+	h.store.append(sessionID, turn{Role: "assistant", Content: resp.Response})
 
-	c.JSON(http.StatusOK, chatResponse{SessionID: sessionID, Response: reply, Sources: sources})
+	c.JSON(http.StatusOK, chatResponse{SessionID: sessionID, Response: resp.Response, Sources: sources})
 }
 
-// HandleStream is the SSE streaming chat endpoint (POST /chat/stream).
-// Event protocol:
+// HandleStream は SSE ストリーミングチャット (POST /chat/stream)
+// イベントプロトコル:
 //
-//	data: {"session_id":"..."}          — first event, carries the session id
-//	data: {"token":"Hello"}              — one event per LLM token
-//	data: {"sources":[...]}             — sent after generation ends (RAG only)
-//	data: [DONE]                        — stream terminator
+//	data: {"session_id":"..."}         — 最初のイベント
+//	data: {"token":"..."}               — LLM トークン（逐次）
+//	data: {"sources":[...]}            — RAG 使用時のみ、生成後に送出
+//	data: [DONE]                       — 終端
 func (h *ChatHandler) HandleStream(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -145,23 +125,13 @@ func (h *ChatHandler) HandleStream(c *gin.Context) {
 	}
 
 	history := h.store.history(sessionID)
-
-	var sources []Source
-	var contextChunks []string
-	if h.retrievalServiceURL != "" {
-		if chunks, srcs, err := h.searchContext(c.Request.Context(), req.Message); err == nil {
-			contextChunks = chunks
-			sources = srcs
-		}
-	}
-
-	prompt := buildPrompt(history, req.Message, contextChunks)
+	chunks, sources, _ := h.searchContext(c.Request.Context(), req.Message)
+	prompt := buildPrompt(history, req.Message, chunks)
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("X-Accel-Buffering", "no")
 
-	// Disable write deadline so long generations aren't cut off.
 	rc := http.NewResponseController(c.Writer)
 	_ = rc.SetWriteDeadline(time.Time{})
 
@@ -171,13 +141,13 @@ func (h *ChatHandler) HandleStream(c *gin.Context) {
 		return
 	}
 
-	// First event: session id so the browser can store it before tokens arrive.
+	// セッション ID を最初に送出（ブラウザがストアする前にトークンが届くのを防ぐ）
 	sessionEvt, _ := json.Marshal(map[string]string{"session_id": sessionID})
 	fmt.Fprintf(c.Writer, "data: %s\n\n", sessionEvt)
 	flusher.Flush()
 
 	var accumulated strings.Builder
-	if err := h.streamFromLLM(c, prompt, flusher, &accumulated); err != nil {
+	if err := h.streamTokens(c.Request.Context(), prompt, flusher, c.Writer, &accumulated); err != nil {
 		errEvt, _ := json.Marshal(map[string]string{"error": err.Error()})
 		fmt.Fprintf(c.Writer, "data: %s\n\n", errEvt)
 		fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
@@ -199,116 +169,46 @@ func (h *ChatHandler) HandleStream(c *gin.Context) {
 	flusher.Flush()
 }
 
-// streamFromLLM calls llm-service /generate/stream, pipes token events to
-// the client, and accumulates the full reply in acc.
-func (h *ChatHandler) streamFromLLM(c *gin.Context, prompt string, flusher http.Flusher, acc *strings.Builder) error {
-	body, err := json.Marshal(generateRequest{Prompt: prompt})
+// streamTokens は gRPC サーバーストリームからトークンを受信して SSE に変換する
+func (h *ChatHandler) streamTokens(ctx context.Context, prompt string, flusher http.Flusher, w http.ResponseWriter, acc *strings.Builder) error {
+	stream, err := h.llmClient.GenerateStream(ctx, &llmv1.GenerateRequest{Prompt: prompt})
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost,
-		h.llmServiceURL+"/generate/stream", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(middleware.RequestIDHeader, c.GetString("request_id"))
-
-	// Use a client without a read timeout since we're streaming.
-	streamClient := &http.Client{}
-	resp, err := streamClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("llm-service stream returned %d", resp.StatusCode)
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if chunk.Token == "" {
 			continue
 		}
-		payload := strings.TrimPrefix(line, "data: ")
-		if payload == "[DONE]" {
-			break
-		}
-
-		var chunk map[string]string
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			continue
-		}
-		if token, ok := chunk["token"]; ok {
-			acc.WriteString(token)
-		}
-
-		fmt.Fprintf(c.Writer, "data: %s\n\n", payload)
+		acc.WriteString(chunk.Token)
+		data, _ := json.Marshal(map[string]string{"token": chunk.Token})
+		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 	}
-	return scanner.Err()
 }
 
-type retrievalSearchRequest struct {
-	Text string `json:"text"`
-	TopK int    `json:"top_k"`
-}
-
-type retrievalChunk struct {
-	Text  string  `json:"text"`
-	DocID string  `json:"doc_id"`
-	Title string  `json:"title"`
-	Score float64 `json:"score"`
-}
-
-type retrievalSearchResponse struct {
-	Chunks []retrievalChunk `json:"chunks"`
-}
-
-// searchContext calls retrieval-service for relevant document chunks and
-// their source metadata. A short deadline keeps LLM response latency bounded.
+// searchContext は retrieval-service を gRPC で呼び出し RAG コンテキストを取得する
 func (h *ChatHandler) searchContext(ctx context.Context, query string) ([]string, []Source, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	body, err := json.Marshal(retrievalSearchRequest{Text: query, TopK: 3})
+	resp, err := h.retrievalClient.Search(ctx, &retrievalv1.SearchRequest{Text: query, TopK: 3})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		h.retrievalServiceURL+"/search", bytes.NewReader(body))
-	if err != nil {
-		return nil, nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("retrieval-service returned %d", resp.StatusCode)
-	}
-
-	var out retrievalSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, nil, err
-	}
-
-	texts := make([]string, 0, len(out.Chunks))
-	sources := make([]Source, 0, len(out.Chunks))
-	for _, ch := range out.Chunks {
-		if ch.Text == "" {
-			continue
-		}
+	texts := make([]string, 0, len(resp.Chunks))
+	sources := make([]Source, 0, len(resp.Chunks))
+	for _, ch := range resp.Chunks {
 		texts = append(texts, ch.Text)
-		sources = append(sources, Source{DocID: ch.DocID, Title: ch.Title, Score: ch.Score})
+		sources = append(sources, Source{DocID: ch.DocId, Title: ch.Title, Score: float64(ch.Score)})
 	}
 	return texts, sources, nil
 }
@@ -321,10 +221,8 @@ func newSessionID() string {
 	return hex.EncodeToString(b)
 }
 
-// buildPrompt assembles the LLM prompt from history, optional RAG context, and the new message.
 func buildPrompt(history []turn, message string, contextChunks []string) string {
 	var b strings.Builder
-
 	if len(contextChunks) > 0 {
 		b.WriteString("以下のコンテキスト情報を参考に、ユーザーの質問に答えてください。\n\nコンテキスト:\n")
 		for _, chunk := range contextChunks {
@@ -332,41 +230,9 @@ func buildPrompt(history []turn, message string, contextChunks []string) string 
 		}
 		b.WriteString("\n")
 	}
-
 	for _, t := range history {
 		fmt.Fprintf(&b, "%s: %s\n", t.Role, t.Content)
 	}
 	fmt.Fprintf(&b, "user: %s\nassistant:", message)
 	return b.String()
-}
-
-func (h *ChatHandler) callLLMService(c *gin.Context, prompt string) (string, error) {
-	body, err := json.Marshal(generateRequest{Prompt: prompt})
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost,
-		h.llmServiceURL+"/generate", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(middleware.RequestIDHeader, c.GetString("request_id"))
-
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	var out generateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
-	}
-	return out.Response, nil
 }

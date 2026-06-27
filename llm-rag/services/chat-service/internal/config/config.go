@@ -6,18 +6,18 @@ import (
 )
 
 type Config struct {
-	Port                string
-	LLMServiceURL       string
-	RetrievalServiceURL string
-	ShutdownTimeout     time.Duration
+	Port                 string
+	LLMServiceAddr       string // gRPC: host:port
+	RetrievalServiceAddr string // gRPC: host:port
+	ShutdownTimeout      time.Duration
 }
 
 func Load() Config {
 	return Config{
-		Port:                getEnv("PORT", "8080"),
-		LLMServiceURL:       getEnv("LLM_SERVICE_URL", "http://llm-service:8080"),
-		RetrievalServiceURL: getEnv("RETRIEVAL_SERVICE_URL", "http://retrieval-service:8080"),
-		ShutdownTimeout:     10 * time.Second,
+		Port:                 getEnv("PORT", "8080"),
+		LLMServiceAddr:       getEnv("LLM_SERVICE_ADDR", "llm-service:9090"),
+		RetrievalServiceAddr: getEnv("RETRIEVAL_SERVICE_ADDR", "retrieval-service:9090"),
+		ShutdownTimeout:      10 * time.Second,
 	}
 }
 

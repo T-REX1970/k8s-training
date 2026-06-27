@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package llm.v1;
+
+option go_package = "github.com/user/llm-rag/gen/llm/v1;llmv1";
+
+service LLMService {
+  // Generate は一括生成（非ストリーミング）
+  rpc Generate(GenerateRequest) returns (GenerateResponse);
+  // GenerateStream はトークン単位のサーバーストリーミング
+  rpc GenerateStream(GenerateRequest) returns (stream TokenChunk);
+}
+
+message GenerateRequest {
+  string prompt = 1;
+}
+
+message GenerateResponse {
+  string response = 1;
+}
+
+message TokenChunk {
+  string token = 1;
+}
